@@ -14,7 +14,7 @@ on:
 permissions:
   id-token: write
   contents: read
-  pull-requests: write # Required to post plan comments now
+  pull-requests: write # Required to post plan comments now and always
 
 jobs:
   plan:
