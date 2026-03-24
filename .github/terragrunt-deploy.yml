@@ -1,0 +1,82 @@
+name: 'GCP Terragrunt Deploy'
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'infra-live/gcp/**'
+      - 'modules/gcp-vpc/**' # Also trigger if the underlying module changes
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'infra-live/gcp/**'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write # Required to post plan comments
+
+jobs:
+  plan:
+    name: 'Terragrunt Plan'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: 'gcp-auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIP_NAME }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Setup Terragrunt
+        uses: autero1/action-terragrunt@v1.3.2
+        with:
+          terragrunt_version: latest
+
+      - name: Terragrunt Plan
+        run: |
+          cd infra-live/gcp/prod
+          terragrunt run-all plan -out=tfplan --terragrunt-non-interactive
+          
+      # Optional: Upload plan as artifact so 'apply' job can use the exact same plan
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcp-plan
+          path: infra-live/gcp/prod/**/tfplan
+
+  apply:
+    name: 'Terragrunt Apply'
+    needs: plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # This environment name must match the one in your Repo Settings -> Environments
+    environment: production 
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: 'gcp-auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIP_NAME }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Setup Terragrunt
+        uses: autero1/action-terragrunt@v1.3.2
+        with:
+          terragrunt_version: latest
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: gcp-plan
+          path: infra-live/gcp/prod
+
+      - name: Terragrunt Apply
+        run: |
+          cd infra-live/gcp/prod
+          terragrunt run-all apply "tfplan" --terragrunt-non-interactive
